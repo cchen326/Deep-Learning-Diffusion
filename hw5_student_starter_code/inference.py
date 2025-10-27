@@ -115,6 +115,8 @@ def main():
         for _ in tqdm(range(0, 5000, batch_size)):
             gen_images = pipeline(batch_size,args.num_inference_steps,device=device)
             all_images.append(gen_images)
+            
+    generated_images=torch.cat(all_images, dim=0)
     
     # TODO: load validation images as reference batch
     val_transform = transforms.Compose([
@@ -124,7 +126,7 @@ def main():
         transforms.Normalize(mean=[0.5,0.5,0.5], std=[0.5,0.5,0.5]),
     ])
     val_dataset = datasets.CIFAR10(root="data",train=False,download=True,transform=val_transform)
-    val_dataloader = torch.utilsdata.DataLoader(val_dataset,batch_size=args.batch_size,shuffle=False)
+    val_dataloader = torch.utils.data.DataLoader(val_dataset,batch_size=args.batch_size,shuffle=False)
     val_images = []
     for images, _ in val_dataloader:
         val_images.append(images)
@@ -136,6 +138,21 @@ def main():
     from torchmetrics.image.fid import FrechetInceptionDistance, InceptionScore
     
     # TODO: compute FID and IS
+    fid_metric = FrechetInceptionDistance(feature=2048, reset_real_features=True, normalize=False, input_img_size=(3, 299, 299), feature_extractor_weights_path=None, antialias=True).to(device)
+    is_metric = InceptionScore(feature='logits_unbiased', splits=10, normalize=False).to(device)
+
+    for batch in val_images.split(batch_size):
+        fid_metric.update(batch.to(device), real=True)
+
+    for batch in generated_images.split(batch_size):
+        batch = batch.to(device)
+        fid_metric.update(batch, real=False)
+        is_metric.update(batch)
+
+    fid_score = fid_metric.compute().item()
+    is_mean, is_std = is_metric.compute()
+    logger.info(f"FID: {fid_score:.3f}, IS: {is_mean:.3f} ± {is_std:.3f}")
+
     
         
     
