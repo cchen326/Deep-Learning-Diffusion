@@ -128,21 +128,30 @@ def main():
         transforms.Resize((args.image_size, args.image_size)),
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5,0.5,0.5], std=[0.5,0.5,0.5]),
+        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
     ])
     # TOOD: use image folder for your train dataset
-    #train_dataset = datasets.ImageFolder(args.data_dir, transform=transform)
-    train_dataset = datasets.CIFAR10(root="./data", train=True, download=True, transform=transform)
+    train_dataset = datasets.ImageFolder(root=args.data_dir, transform=transform)
     
     # TODO: setup dataloader
     sampler = None 
     if args.distributed:
         # TODO: distributed sampler
-        sampler =torch.utils.data.distributed.DistributedSampler(train_dataset)
+        sampler = torch.utils.data.distributed.DistributedSampler(
+            train_dataset, num_replicas=args.world_size, rank=args.rank, shuffle=True
+        )
     # TODO: shuffle
     shuffle = False if sampler else True
     # TODO dataloader
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,shuffle=shuffle, sampler=sampler,num_workers=args.num_workers)
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=args.batch_size,
+        shuffle=shuffle,
+        sampler=sampler,
+        num_workers=args.num_workers,
+        pin_memory=True,
+        drop_last=True,
+    )
     
     # calculate total batch_size
     total_batch_size = args.batch_size * args.world_size 
@@ -169,15 +178,17 @@ def main():
     logger.info(f"Number of parameters: {num_params / 10 ** 6:.2f}M")
     
     # TODO: ddpm shceduler
-    scheduler = DDPMScheduler(num_train_timesteps=args.num_train_timesteps,
-                              num_inference_steps=args.num_inference_steps,
-                              beta_start=args.beta_start,
-                              beta_end=args.beta_end,
-                              beta_schedule=args.beta_schedule,
-                              variance_type=args.variance_type,
-                              prediction_type=args.prediction_type,
-                              clip_sample=args.clip_sample,
-                              clip_sample_range=args.clip_sampe_range)
+    scheduler = DDPMScheduler(
+        num_train_timesteps=args.num_train_timesteps,
+        num_inference_steps=args.num_inference_steps,
+        beta_start=args.beta_start,
+        beta_end=args.beta_end,
+        beta_schedule=args.beta_schedule,
+        variance_type=args.variance_type,
+        prediction_type=args.prediction_type,
+        clip_sample=args.clip_sample,
+        clip_sample_range=args.clip_sample_range,
+    )
     
     # NOTE: this is for latent DDPM 
     vae = None
@@ -191,7 +202,7 @@ def main():
     class_embedder = None
     if args.use_cfg:
         # TODO: 
-        class_embedder = ClassEmbedder(None)
+        class_embedder = ClassEmbedder(embed_dim=args.unet_ch, n_classes=args.num_classes, cond_drop_rate=0.1)
         
     # send to device
     unet = unet.to(device)
@@ -202,9 +213,17 @@ def main():
         class_embedder = class_embedder.to(device)
     
     # TODO: setup optimizer
-    optimizer = torch.optim.AdamW(unet.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    optimizer = torch.optim.AdamW(
+        unet.parameters(),
+        lr=args.learning_rate,
+        weight_decay=args.weight_decay,
+    )
     # TODO: setup scheduler
-    scheduler = scheduler
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(
+        optimizer,
+        step_size=max(1, len(train_loader)),
+        gamma=0.98,
+    )
     
     # max train steps
     num_update_steps_per_epoch = len(train_loader)
@@ -219,27 +238,31 @@ def main():
             class_embedder = torch.nn.parallel.DistributedDataParallel(
                 class_embedder, device_ids=[args.device], output_device=args.device, find_unused_parameters=False)
             class_embedder_wo_ddp = class_embedder.module
+        else:
+            class_embedder_wo_ddp = None
     else:
         unet_wo_ddp = unet
         class_embedder_wo_ddp = class_embedder
     vae_wo_ddp = vae
     # TODO: setup ddim
     if args.use_ddim:
-        scheduler_wo_ddp = DDIMScheduler(num_train_timesteps=args.num_train_timesteps,
-                              num_inference_steps=args.num_inference_steps,
-                              beta_start=args.beta_start,
-                              beta_end=args.beta_end,
-                              beta_schedule=args.beta_schedule,
-                              variance_type=args.variance_type,
-                              prediction_type=args.prediction_type,
-                              clip_sample=args.clip_sample,
-                              clip_sample_range=args.clip_sampe_range)
+        scheduler_wo_ddp = DDIMScheduler(
+            num_train_timesteps=args.num_train_timesteps,
+            num_inference_steps=args.num_inference_steps,
+            beta_start=args.beta_start,
+            beta_end=args.beta_end,
+            beta_schedule=args.beta_schedule,
+            variance_type=args.variance_type,
+            prediction_type=args.prediction_type,
+            clip_sample=args.clip_sample,
+            clip_sample_range=args.clip_sample_range,
+        )
     else:
         scheduler_wo_ddp = scheduler
     
     # TODO: setup evaluation pipeline
     # NOTE: this pipeline is not differentiable and only for evaluatin
-    pipeline = DDPMPipeline(unet,scheduler_wo_ddp)
+    pipeline = DDPMPipeline(unet_wo_ddp, scheduler_wo_ddp, vae_wo_ddp, class_embedder_wo_ddp)
     
     
     # dump config file
@@ -287,7 +310,7 @@ def main():
         
         # TODO: set unet and scheduelr to train
         unet.train()
-        #scheduler
+        scheduler.train()
         
         
         # TODO: finish this
@@ -296,45 +319,52 @@ def main():
             batch_size = images.size(0)
             
             # TODO: send to device
-            images = images.to(device)
-            labels = labels.to(device)
+            images = images.to(device, non_blocking=True)
+            labels = labels.to(device, non_blocking=True)
             
             
             # NOTE: this is for latent DDPM 
             if vae is not None:
                 # use vae to encode images as latents
-                images = None 
+                images = vae.encode(images)
                 # NOTE: do not change  this line, this is to ensure the latent has unit std
                 images = images * 0.1845
             
             # TODO: zero grad optimizer
             optimizer.zero_grad()
             
+            
             # NOTE: this is for CFG
             if class_embedder is not None:
                 # TODO: use class embedder to get class embeddings
-                class_emb = None 
+                class_emb = class_embedder(labels)
             else:
                 # NOTE: if not cfg, set class_emb to None
                 class_emb = None
             
             # TODO: sample noise 
-            noise =torch.randn_like(images)
+            noise = torch.randn_like(images)
             
             # TODO: sample timestep t
-            timesteps = torch.randint(0,args.num_train_timesteps,(batch_size,))
+            timesteps = torch.randint(
+                0,
+                args.num_train_timesteps,
+                (batch_size,),
+                device=device,
+                dtype=torch.long,
+            )
             
             # TODO: add noise to images using scheduler
-            noisy_images = scheduler.add_noise(images,noise,timesteps)
+            noisy_images = scheduler.add_noise(images, noise, timesteps)
             
             # TODO: model prediction
-            model_pred = unet(noisy_images,timesteps,class_emb)
+            model_pred = unet(noisy_images, timesteps, class_emb)
             
             if args.prediction_type == 'epsilon':
                 target = noise 
             
             # TODO: calculate loss
-            loss = torch.mean((target-model_pred)**2)
+            loss = F.mse_loss(model_pred, target)
             
             # record loss
             loss_m.update(loss.item())
@@ -347,6 +377,8 @@ def main():
             
             # TODO: step your optimizer
             optimizer.step()
+            if lr_scheduler is not None:
+                lr_scheduler.step()
             
             progress_bar.update(1)
             
@@ -366,11 +398,23 @@ def main():
             # random sample 4 classes
             classes = torch.randint(0, args.num_classes, (4,), device=device)
             # TODO: fill pipeline
-            gen_images = pipeline(None) 
+            gen_images = pipeline(
+                batch_size=4,
+                num_inference_steps=args.num_inference_steps,
+                classes=classes.tolist(),
+                guidance_scale=args.cfg_guidance_scale,
+                generator=generator,
+                device=device,
+            )
         else:
             # TODO: fill pipeline
-            gen_images = pipeline(args.batch_size, args.num_inference_steps, generator=generator,device=device)
-
+            gen_images = pipeline(
+                batch_size=4,
+                num_inference_steps=args.num_inference_steps,
+                generator=generator,
+                device=device,
+            )
+            
         # create a blank canvas for the grid
         grid_image = Image.new('RGB', (4 * args.image_size, 1 * args.image_size))
         # paste images into the grid
@@ -382,7 +426,6 @@ def main():
         # Send to wandb
         if is_primary(args):
             wandb_logger.log({'gen_images': wandb.Image(grid_image)})
-        grid_image.save(os.path.join(".", "sample.png"))
             
         # save checkpoint
         if is_primary(args):

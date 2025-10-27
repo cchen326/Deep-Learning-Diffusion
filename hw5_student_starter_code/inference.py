@@ -1,17 +1,8 @@
-import os 
-import sys 
-import argparse
-import numpy as np
-import ruamel.yaml as yaml
-import torch
-import wandb 
-import logging 
+import logging
 from logging import getLogger as get_logger
-from tqdm import tqdm 
-from PIL import Image
-import torch.nn.functional as F
+from tqdm import tqdm
 
-from torchvision.utils  import make_grid
+import torch
 
 from models import UNet, VAE, ClassEmbedder
 from schedulers import DDPMScheduler, DDIMScheduler
@@ -29,8 +20,6 @@ def main():
     
     # seed everything
     seed_everything(args.seed)
-    generator = torch.Generator(device=device)
-    generator.manual_seed(args.seed)
     
     # setup logging
     logging.basicConfig(
@@ -41,6 +30,8 @@ def main():
     
     # device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    generator = torch.Generator(device=device)
+    generator.manual_seed(args.seed)
     
     # setup model
     logger.info("Creating model")
@@ -62,7 +53,7 @@ def main():
     class_embedder = None
     if args.use_cfg:
         # TODO: class embeder
-        class_embedder = ClassEmbedder(None)
+        class_embedder = ClassEmbedder(embed_dim=args.unet_ch, n_classes=args.num_classes, cond_drop_rate=0.0)
         
     # send to device
     unet = unet.to(device)
@@ -86,14 +77,14 @@ def main():
                               variance_type=args.variance_type,
                               prediction_type=args.prediction_type,
                               clip_sample=args.clip_sample,
-                              clip_sample_range=args.clip_sampe_range)
+                              clip_sample_range=args.clip_sample_range)
 
     scheduler = scheduler.to(device)
     # load checkpoint
     load_checkpoint(unet, scheduler, vae=vae, class_embedder=class_embedder, checkpoint_path=args.ckpt)
     
     # TODO: pipeline
-    pipeline = DDPMPipeline(unet,scheduler,vae,class_embedder)
+    pipeline = DDPMPipeline(unet, scheduler, vae, class_embedder)
 
     
     logger.info("***** Running Infrence *****")
@@ -101,36 +92,49 @@ def main():
     # TODO: we run inference to generation 5000 images
     # TODO: with cfg, we generate 50 images per class 
     all_images = []
+    to_tensor = transforms.ToTensor()
     if args.use_cfg:
         # generate 50 images per class
         for i in tqdm(range(args.num_classes)):
             logger.info(f"Generating 50 images for class {i}")
             batch_size = 50
             classes = torch.full((batch_size,), i, dtype=torch.long, device=device)
-            gen_images = None 
+            gen_images = pipeline(
+                batch_size=batch_size,
+                num_inference_steps=args.num_inference_steps,
+                classes=classes.tolist(),
+                guidance_scale=args.cfg_guidance_scale,
+                generator=generator,
+                device=device,
+            )
+            gen_images = torch.stack([to_tensor(img) for img in gen_images], dim=0)
             all_images.append(gen_images)
     else:
         # generate 5000 images
         batch_size = 50
         for _ in tqdm(range(0, 5000, batch_size)):
-            gen_images = pipeline(batch_size,args.num_inference_steps,device=device)
+            gen_images = pipeline(
+                batch_size=batch_size,
+                num_inference_steps=args.num_inference_steps,
+                generator=generator,
+                device=device,
+            )
+            gen_images = torch.stack([to_tensor(img) for img in gen_images], dim=0)
             all_images.append(gen_images)
             
-    generated_images=torch.cat(all_images, dim=0)
+    generated_images = torch.cat(all_images, dim=0)
     
     # TODO: load validation images as reference batch
     val_transform = transforms.Compose([
         transforms.Resize((args.image_size, args.image_size)),
-        transforms.RandomHorizontalFlip(p=0.5),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5,0.5,0.5], std=[0.5,0.5,0.5]),
     ])
     val_dataset = datasets.CIFAR10(root="data",train=False,download=True,transform=val_transform)
     val_dataloader = torch.utils.data.DataLoader(val_dataset,batch_size=args.batch_size,shuffle=False)
     val_images = []
     for images, _ in val_dataloader:
         val_images.append(images)
-    val_images=torch.cat(val_images,dim=0)
+    val_images = torch.cat(val_images,dim=0)
 
     # TODO: using torchmetrics for evaluation, check the documents of torchmetrics
     import torchmetrics 
