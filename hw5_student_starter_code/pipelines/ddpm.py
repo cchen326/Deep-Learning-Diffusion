@@ -82,15 +82,15 @@ class DDPMPipeline:
             # TODO: get uncond classes
             uncond_classes = None 
             # TODO: get class embeddings from classes
-            class_embeds = None 
+            class_embeds = None
             # TODO: get uncon class embeddings
-            uncond_embeds = None 
+            uncond_embeds = None
         
         # TODO: starts with random noise
-        image = None # randn_tensor(image_shape, generator=generator, device=device)
+        image = randn_tensor(image_shape, generator=generator, device=device)
 
         # TODO: set step values using set_timesteps of scheduler
-        self.scheduler = None
+        self.scheduler.set_timesteps(num_inference_steps=num_inference_steps,device=device)
         
         # TODO: inverse diffusion process with for loop
         for t in self.progress_bar(self.scheduler.timesteps):
@@ -101,12 +101,12 @@ class DDPMPipeline:
                 model_input = None 
                 c = None 
             else:
-                model_input = None 
+                model_input = image
                 # NOTE: leave c as None if you are not using CFG
                 c = None
             
             # TODO: 1. predict noise model_output
-            model_output = None
+            model_output = self.unet(model_input,t,c)
             
             if guidance_scale is not None or guidance_scale != 1.0:
                 # TODO: implement cfg
@@ -114,7 +114,7 @@ class DDPMPipeline:
                 model_output = None
             
             # TODO: 2. compute previous image: x_t -> x_t-1 using scheduler
-            image = None 
+            image = self.scheduler.step(model_output,t,image,generator)
             
         
         # NOTE: this is for latent DDPM
@@ -126,7 +126,7 @@ class DDPMPipeline:
             image = None 
         
         # TODO: return final image, re-scale to [0, 1]
-        image = None 
+        image = (image+1)/2
         
         # convert to PIL images
         image = image.cpu().permute(0, 2, 3, 1).numpy()
