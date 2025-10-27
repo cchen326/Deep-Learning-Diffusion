@@ -131,7 +131,8 @@ def main():
         transforms.Normalize(mean=[0.5,0.5,0.5], std=[0.5,0.5,0.5]),
     ])
     # TOOD: use image folder for your train dataset
-    train_dataset = datasets.ImageFolder(args.data_dir, transform=transform)
+    #train_dataset = datasets.ImageFolder(args.data_dir, transform=transform)
+    train_dataset = datasets.CIFAR10(root="./data", train=True, download=True, transform=transform)
     
     # TODO: setup dataloader
     sampler = None 
@@ -333,7 +334,7 @@ def main():
                 target = noise 
             
             # TODO: calculate loss
-            loss = np.mean((target-model_pred)**2)
+            loss = torch.mean((target-model_pred)**2)
             
             # record loss
             loss_m.update(loss.item())
@@ -368,8 +369,8 @@ def main():
             gen_images = pipeline(None) 
         else:
             # TODO: fill pipeline
-            gen_images = pipeline(None) 
-            
+            gen_images = pipeline(args.batch_size, args.num_inference_steps, generator=generator,device=device)
+
         # create a blank canvas for the grid
         grid_image = Image.new('RGB', (4 * args.image_size, 1 * args.image_size))
         # paste images into the grid
@@ -381,6 +382,7 @@ def main():
         # Send to wandb
         if is_primary(args):
             wandb_logger.log({'gen_images': wandb.Image(grid_image)})
+        grid_image.save(os.path.join(".", "sample.png"))
             
         # save checkpoint
         if is_primary(args):
