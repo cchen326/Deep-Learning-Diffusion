@@ -13,12 +13,13 @@ def load_checkpoint(unet, scheduler, vae=None, class_embedder=None, optimizer=No
     unet.load_state_dict(checkpoint['unet_state_dict'])
     print("loading scheduler")
     scheduler_state = checkpoint.get('scheduler_state_dict', {})
-    if 'timesteps' in scheduler_state:
-        saved = scheduler_state['timesteps']
-        current = getattr(scheduler, 'timesteps', None)
-        if current is not None and saved.shape != current.shape:
-            # Drop mismatched timesteps so we can regenerate them via `set_timesteps`.
-            scheduler_state = {k: v for k, v in scheduler_state.items() if k != 'timesteps'}
+    if isinstance(scheduler_state, dict):
+        scheduler_state = dict(scheduler_state)  # shallow copy
+        if 'timesteps' in scheduler_state:
+            saved = scheduler_state['timesteps']
+            current = getattr(scheduler, 'timesteps', None)
+            if current is not None and getattr(saved, 'shape', None) != getattr(current, 'shape', None):
+                scheduler_state.pop('timesteps')
     scheduler.load_state_dict(scheduler_state, strict=False)
     
     if vae is not None and 'vae_state_dict' in checkpoint:
@@ -41,7 +42,11 @@ def save_checkpoint(unet, scheduler, vae=None, class_embedder=None, optimizer=No
 
     checkpoint = {
         'unet_state_dict': unet.state_dict(),
-        'scheduler_state_dict': scheduler.state_dict(),
+        'scheduler_state_dict': {
+            k: v
+            for k, v in scheduler.state_dict().items()
+            if k != 'timesteps'
+        },
     }
     
     if vae is not None:
