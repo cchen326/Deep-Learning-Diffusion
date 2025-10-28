@@ -12,7 +12,14 @@ def load_checkpoint(unet, scheduler, vae=None, class_embedder=None, optimizer=No
     print("loading unet")
     unet.load_state_dict(checkpoint['unet_state_dict'])
     print("loading scheduler")
-    scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+    scheduler_state = checkpoint.get('scheduler_state_dict', {})
+    if 'timesteps' in scheduler_state:
+        saved = scheduler_state['timesteps']
+        current = getattr(scheduler, 'timesteps', None)
+        if current is not None and saved.shape != current.shape:
+            # Drop mismatched timesteps so we can regenerate them via `set_timesteps`.
+            scheduler_state = {k: v for k, v in scheduler_state.items() if k != 'timesteps'}
+    scheduler.load_state_dict(scheduler_state, strict=False)
     
     if vae is not None and 'vae_state_dict' in checkpoint:
         print("loading vae")
