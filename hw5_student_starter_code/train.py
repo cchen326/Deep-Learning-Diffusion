@@ -54,6 +54,8 @@ def parse_args():
     parser.add_argument("--beta_schedule", type=str, default='linear', help="ddpm beta schedule")
     parser.add_argument("--variance_type", type=str, default='fixed_small', help="ddpm variance type")
     parser.add_argument("--prediction_type", type=str, default='epsilon', help="ddpm epsilon type")
+    parser.add_argument("--num_inference_samples", type=int, default=5000, help="number of samples to generate during inference when running evaluation")
+    parser.add_argument("--samples_per_class", type=int, default=50, help="number of samples per class during inference when CFG is enabled")
     parser.add_argument("--clip_sample", type=str2bool, default=True, help="whether to clip sample at each step of reverse process")
     parser.add_argument("--clip_sample_range", type=float, default=1.0, help="clip sample range")
     
@@ -158,13 +160,15 @@ def main():
     args.total_batch_size = total_batch_size
     
     # setup experiment folder
-    if args.run_name is None:
-        args.run_name = f'exp-{len(os.listdir(args.output_dir))}'
-    else:
-        args.run_name = f'exp-{len(os.listdir(args.output_dir))}-{args.run_name}'
+    os.makedirs(args.output_dir, exist_ok=True)
+    if not args.run_name:
+        existing_runs = [
+            d for d in os.listdir(args.output_dir)
+            if os.path.isdir(os.path.join(args.output_dir, d))
+        ]
+        args.run_name = f'exp-{len(existing_runs)}'
     output_dir = os.path.join(args.output_dir, args.run_name)
     save_dir = os.path.join(output_dir, 'checkpoints')
-    os.makedirs(args.output_dir, exist_ok=True)
     if is_primary(args):
         os.makedirs(output_dir, exist_ok=True)
         os.makedirs(save_dir, exist_ok=True)
