@@ -1,4 +1,5 @@
 import logging
+import math
 from logging import getLogger as get_logger
 from tqdm import tqdm
 
@@ -93,35 +94,47 @@ def main():
     # TODO: with cfg, we generate 50 images per class 
     all_images = []
     to_tensor = transforms.ToTensor()
+    batch_size = args.batch_size
     if args.use_cfg:
-        # generate 50 images per class
-        for i in tqdm(range(args.num_classes)):
-            logger.info(f"Generating 50 images for class {i}")
-            batch_size = 50
-            classes = torch.full((batch_size,), i, dtype=torch.long, device=device)
-            gen_images = pipeline(
-                batch_size=batch_size,
-                num_inference_steps=args.num_inference_steps,
-                classes=classes.tolist(),
-                guidance_scale=args.cfg_guidance_scale,
-                generator=generator,
-                device=device,
-            )
-            gen_images = torch.stack([to_tensor(img) for img in gen_images], dim=0)
-            all_images.append(gen_images)
+        samples_per_class = max(1, args.samples_per_class)
+        for class_idx in tqdm(range(args.num_classes)):
+            logger.info(f"Generating {samples_per_class} images for class {class_idx}")
+            remaining = samples_per_class
+            while remaining > 0:
+                current_batch_size = min(batch_size, remaining)
+                classes = torch.full(
+                    (current_batch_size,), class_idx, dtype=torch.long, device=device
+                )
+                gen_images = pipeline(
+                    batch_size=current_batch_size,
+                    num_inference_steps=args.num_inference_steps,
+                    classes=classes.tolist(),
+                    guidance_scale=args.cfg_guidance_scale,
+                    generator=generator,
+                    device=device,
+                )
+                gen_images = torch.stack([to_tensor(img) for img in gen_images], dim=0)
+                all_images.append(gen_images)
+                remaining -= current_batch_size
     else:
-        # generate 5000 images
-        batch_size = 50
-        for _ in tqdm(range(0, 5000, batch_size)):
+        total_samples = max(1, args.num_inference_samples)
+        remaining = total_samples
+        for _ in tqdm(range(math.ceil(total_samples / batch_size))):
+            current_batch_size = min(batch_size, remaining)
+            if current_batch_size <= 0:
+                break
             gen_images = pipeline(
-                batch_size=batch_size,
+                batch_size=current_batch_size,
                 num_inference_steps=args.num_inference_steps,
                 generator=generator,
                 device=device,
             )
             gen_images = torch.stack([to_tensor(img) for img in gen_images], dim=0)
             all_images.append(gen_images)
+            remaining -= current_batch_size
             
+    if not all_images:
+        raise ValueError("No images were generated; please check batch size and sample configuration.")
     generated_images = torch.cat(all_images, dim=0)
     
     # TODO: load validation images as reference batch
@@ -139,19 +152,26 @@ def main():
     # TODO: using torchmetrics for evaluation, check the documents of torchmetrics
     import torchmetrics 
     
-    from torchmetrics.image.fid import FrechetInceptionDistance, InceptionScore
+    from torchmetrics.image.fid import FrechetInceptionDistance
+    from torchmetrics.image.inception import InceptionScore
     
     # TODO: compute FID and IS
     fid_metric = FrechetInceptionDistance(feature=2048, reset_real_features=True, normalize=False, input_img_size=(3, 299, 299), feature_extractor_weights_path=None, antialias=True).to(device)
     is_metric = InceptionScore(feature='logits_unbiased', splits=10, normalize=False).to(device)
 
-    for batch in val_images.split(batch_size):
-        fid_metric.update(batch.to(device), real=True)
+    def to_uint8(batch: torch.Tensor) -> torch.Tensor:
+        batch = batch.clamp(0.0, 1.0)
+        return (batch * 255.0).round().to(torch.uint8)
 
-    for batch in generated_images.split(batch_size):
-        batch = batch.to(device)
-        fid_metric.update(batch, real=False)
-        is_metric.update(batch)
+    eval_batch_size = args.batch_size
+    for batch in val_images.split(eval_batch_size):
+        batch_uint8 = to_uint8(batch).to(device)
+        fid_metric.update(batch_uint8, real=True)
+
+    for batch in generated_images.split(eval_batch_size):
+        batch_uint8 = to_uint8(batch).to(device)
+        fid_metric.update(batch_uint8, real=False)
+        is_metric.update(batch_uint8)
 
     fid_score = fid_metric.compute().item()
     is_mean, is_std = is_metric.compute()
