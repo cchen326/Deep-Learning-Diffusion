@@ -4,7 +4,10 @@ import os
 def load_checkpoint(unet, scheduler, vae=None, class_embedder=None, optimizer=None, checkpoint_path='checkpoints/checkpoint.pth'):
     
     print("loading checkpoint")
-    checkpoint = torch.load(checkpoint_path)
+    # NOTE: PyTorch 2.6 defaults to `weights_only=True`, which breaks checkpoints that
+    # store configuration values (e.g. ruamel.yaml scalar floats). For our own training
+    # artifacts it is safe to opt back into the original behaviour.
+    checkpoint = torch.load(checkpoint_path, weights_only=False)
     
     print("loading unet")
     unet.load_state_dict(checkpoint['unet_state_dict'])
