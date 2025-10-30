@@ -1,5 +1,6 @@
 import logging
 import math
+from pathlib import Path
 from logging import getLogger as get_logger
 from tqdm import tqdm
 
@@ -10,6 +11,8 @@ from schedulers import DDPMScheduler, DDIMScheduler
 from pipelines import DDPMPipeline
 from utils import seed_everything, load_checkpoint
 from torchvision import datasets,transforms
+from torchvision.utils import make_grid
+from torchvision.transforms.functional import to_pil_image
 from train import parse_args
 
 logger = get_logger(__name__)
@@ -136,6 +139,18 @@ def main():
     if not all_images:
         raise ValueError("No images were generated; please check batch size and sample configuration.")
     generated_images = torch.cat(all_images, dim=0)
+    
+    # save preview grid next to checkpoint for quick inspection
+    preview_count = min(16, generated_images.shape[0])
+    if preview_count > 0:
+        grid = make_grid(generated_images[:preview_count], nrow=min(4, preview_count))
+        preview_image = to_pil_image(grid)
+        ckpt_path = Path(args.ckpt).resolve()
+        samples_dir = ckpt_path.parent
+        samples_dir.mkdir(parents=True, exist_ok=True)
+        preview_path = samples_dir / f"inference_samples_preview.png"
+        preview_image.save(preview_path)
+        logger.info(f"Saved inference preview grid to {preview_path}")
     
     # TODO: load validation images as reference batch
     val_transform = transforms.Compose([
