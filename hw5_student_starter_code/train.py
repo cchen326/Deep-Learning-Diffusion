@@ -419,12 +419,14 @@ def main():
                 device=device,
             )
             
-        # create a blank canvas for the grid
-        grid_image = Image.new('RGB', (4 * args.image_size, 1 * args.image_size))
-        # paste images into the grid
-        for i, image in enumerate(gen_images):
-            x = (i % 4) * args.image_size
-            y = 0
+        # create a 2x2 grid to match inference previews
+        cols, rows = 2, 2
+        grid_image = Image.new('RGB', (cols * args.image_size, rows * args.image_size), color=(255, 255, 255))
+        for idx, image in enumerate(gen_images):
+            if idx >= cols * rows:
+                break
+            x = (idx % cols) * args.image_size
+            y = (idx // cols) * args.image_size
             grid_image.paste(image, (x, y))
         
         # Send to wandb

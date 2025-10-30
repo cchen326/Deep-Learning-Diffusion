@@ -143,7 +143,12 @@ def main():
     # save preview grid next to checkpoint for quick inspection
     preview_count = min(16, generated_images.shape[0])
     if preview_count > 0:
-        grid = make_grid(generated_images[:preview_count], nrow=min(4, preview_count))
+        grid = make_grid(
+            generated_images[:preview_count],
+            nrow=min(4, preview_count),
+            padding=2,
+            pad_value=1.0,
+        )
         preview_image = to_pil_image(grid)
         ckpt_path = Path(args.ckpt).resolve()
         samples_dir = ckpt_path.parent
