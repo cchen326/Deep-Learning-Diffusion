@@ -10,6 +10,8 @@ learning_rate: 2e-4
 weight_decay: 1e-4
 num_train_timesteps: 1000
 num_inference_steps: 250
+num_inference_samples: 5000
+samples_per_class: 50
 beta_start: 1e-4
 beta_end: 1e-2
 beta_schedule: linear
