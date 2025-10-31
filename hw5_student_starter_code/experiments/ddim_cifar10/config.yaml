@@ -33,7 +33,7 @@ unet_dropout: 0.0
 latent_ddpm: false
 use_cfg: false
 cfg_guidance_scale: 2.0
-use_ddim: false
+use_ddim: true
 ckpt:
 predictor_type: epsilon
 distributed: false
