@@ -129,7 +129,10 @@ class DDPMPipeline:
             image = image / 0.1845
             # TODO: clamp your images values
             image = self.vae.decode(image).clamp(-1.0, 1.0)
-        
+        else:
+            # Clamp pixel-space diffusion outputs to valid range
+            image = image.clamp(-1.0, 1.0)
+
         # TODO: return final image, re-scale to [0, 1]
         image = (image+1)/2
         
