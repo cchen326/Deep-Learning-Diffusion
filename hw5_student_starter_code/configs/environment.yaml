@@ -1,0 +1,22 @@
+name: idl_diffusion_env
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pytorch=2.1
+  - torchvision=0.16
+  - torchaudio=2.1
+  - pytorch-cuda=12.1
+  - numpy=1.24
+  - pillow=9.5
+  - tqdm
+  - ruamel.yaml
+  - pip:
+      - einops==0.6.1
+      - matplotlib==3.8
+      - wandb
+      - torchmetrics[image]

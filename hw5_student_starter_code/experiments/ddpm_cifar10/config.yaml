@@ -1,0 +1,45 @@
+config: configs/ddpm_cifar10.yaml
+data_dir: ./data/cifar10/train
+image_size: 128
+batch_size: 16
+num_workers: 8
+num_classes: 100
+run_name: ddpm_cifar10
+output_dir: experiments
+num_epochs: 200
+learning_rate: 2e-4
+weight_decay: 1e-4
+grad_clip: 1.0
+seed: 42
+mixed_precision: none
+num_train_timesteps: 1000
+num_inference_steps: 250
+beta_start: 1e-4
+beta_end: 1e-2
+beta_schedule: linear
+variance_type: fixed_small
+prediction_type: epsilon
+num_inference_samples: 5000
+samples_per_class: 50
+clip_sample: true
+clip_sample_range: 1.0
+unet_in_size: 128
+unet_in_ch: 3
+unet_ch: 128
+unet_ch_mult: [1, 2, 2, 4]
+unet_attn: [2, 3]
+unet_num_res_blocks: 2
+unet_dropout: 0.0
+latent_ddpm: false
+use_cfg: false
+cfg_guidance_scale: 2.0
+use_ddim: false
+ckpt:
+predictor_type: epsilon
+distributed: false
+world_size: 1
+rank: 0
+local_rank: 0
+device: cuda
+total_batch_size: 16
+max_train_steps: 625000
