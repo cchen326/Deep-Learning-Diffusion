@@ -30,7 +30,7 @@ class DDIMScheduler(DDPMScheduler):
         
         
         # TODO: calculate $beta_t$ for the current timestep using the cumulative product of alphas
-        prev_t = t-1
+        prev_t = self.previous_timestep(t)
         alpha_prod_t = self.alphas_cumprod[t]
         alpha_prod_t_prev = self.alphas_cumprod[prev_t] 
         beta_prod_t = 1 - alpha_prod_t
@@ -83,7 +83,7 @@ class DDIMScheduler(DDPMScheduler):
         # - pred_prev_sample -> "x_t-1"
         
         t = timestep
-        prev_t = timestep-1 
+        prev_t = self.previous_timestep(t)
         
         # TODO: 1. compute alphas, betas
         alpha_prod_t = self.alphas_cumprod[t] 
