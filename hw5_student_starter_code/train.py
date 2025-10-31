@@ -296,7 +296,8 @@ def main():
         logger.info(f"  Total optimization steps per epoch {num_update_steps_per_epoch}")
         logger.info(f"  Total optimization steps = {args.max_train_steps}")
     # Only show the progress bar once on each machine.
-    progress_bar = tqdm(range(args.max_train_steps), disable=not is_primary(args))
+    # Update every 10 steps to reduce verbosity
+    progress_bar = tqdm(range(args.max_train_steps), disable=not is_primary(args), miniters=10, mininterval=5.0)
 
     # training
     for epoch in range(args.num_epochs):
@@ -393,10 +394,10 @@ def main():
 
         # validation
         # send unet to evaluation mode
-        unet.eval()        
+        unet.eval()
         generator = torch.Generator(device=device)
         generator.manual_seed(epoch + args.seed)
-        
+
         # NOTE: this is for CFG
         if args.use_cfg:
             # random sample 4 classes
