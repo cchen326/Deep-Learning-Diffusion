@@ -2,7 +2,7 @@ run_name: ddim_cifar10
 seed: 42
 data_dir: ./data/cifar10/train
 image_size: 128
-batch_size: 16
+batch_size: 128
 num_workers: 8
 num_classes: 100
 num_epochs: 200
@@ -25,3 +25,5 @@ unet_num_res_blocks: 2
 unet_ch_mult: [1, 2, 2, 4]
 unet_attn: [2, 3]
 unet_dropout: 0.0
+
+use_ddim: True

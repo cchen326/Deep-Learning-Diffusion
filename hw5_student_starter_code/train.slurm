@@ -18,6 +18,8 @@ conda activate idl_diffusion_env
 nvidia-smi
 
 export WANDB_API_KEY="2f02bf2d4bd05dc6abe9560736612ee323fa9b42"
+export WANBD_PROJECT="diffusion"
+export WANDB_ENTITY="idl_diffusion"
 
 # model training
 cmd=`sed -n "${SLURM_ARRAY_TASK_ID}p" diffusion_run_train_cmds.txt`
