@@ -82,9 +82,12 @@ class DDPMScheduler(nn.Module):
             )
             
         # TODO: set timesteps
-        step = max(self.num_train_timesteps // num_inference_steps, 1)
-        timesteps = torch.arange(self.num_train_timesteps - 1, -1, -step, dtype=torch.long)
-        timesteps = timesteps[:num_inference_steps]
+        # Create a uniform schedule that always ends at timestep 0
+        # This ensures the final denoising step doesn't add noise (when t=0)
+        step = self.num_train_timesteps // num_inference_steps
+        timesteps = torch.arange(0, self.num_train_timesteps, step, dtype=torch.long)
+        # Reverse to go from high noise to low noise, and ensure we end at 0
+        timesteps = torch.flip(timesteps, dims=[0])
         if device is not None:
             timesteps = timesteps.to(device)
         self.timesteps = timesteps
