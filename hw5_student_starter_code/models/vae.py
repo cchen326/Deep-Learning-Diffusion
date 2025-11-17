@@ -29,12 +29,17 @@ class VAE(nn.Module):
     @torch.no_grad()
     def encode(self, x):
         # TODO: Implemente the encode function transforms images into a sampled vector from
-        raise NotImplementedError("VAE encode is part of the latent diffusion section and is not required for the midterm.")
+        x = self.encoder(x)
+        x = self.quant_conv(x)
+        x = DiagonalGaussianDistribution(x).sample()
+        return x
 
     @torch.no_grad()
     def decode(self, z):
         # TODO: reconstruct images from latent
-        raise NotImplementedError("VAE decode is part of the latent diffusion section and is not required for the midterm.")
+        z = self.post_quant_conv(z)
+        z = self.decoder(z)
+        return z
 
     def init_from_ckpt(self, path, ignore_keys=list()):
         sd = torch.load(path, map_location="cpu")["state_dict"]
