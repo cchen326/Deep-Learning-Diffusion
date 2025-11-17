@@ -142,7 +142,10 @@ class DDPMScheduler(nn.Module):
         prev_t_int = prev_t.item() if torch.is_tensor(prev_t) else int(prev_t)
         alpha_prod_t = self.alphas_cumprod[t_int]
         alpha_prod_t_prev = self.alphas_cumprod[prev_t_int]
-        current_beta_t = self.betas[t_int]
+
+        # When skipping timesteps, use cumulative beta over the skip interval
+        current_alpha_t = alpha_prod_t / alpha_prod_t_prev if alpha_prod_t_prev > 0 else alpha_prod_t
+        current_beta_t = 1.0 - current_alpha_t
     
         # TODO: For t > 0, compute predicted variance $\beta_t$ (see formula (6) and (7) from https://arxiv.org/pdf/2006.11239.pdf)
         # and sample from it to get previous sample
@@ -162,8 +165,8 @@ class DDPMScheduler(nn.Module):
             # TODO: fixed small variance
             variance = variance
         elif self.variance_type == "fixed_large":
-            # TODO: fixed large variance
-            variance = self.betas[t_int]
+            # TODO: fixed large variance (use cumulative beta for skipped timesteps)
+            variance = current_beta_t
             # TODO: small hack: set the initial (log-)variance like so to get a better decoder log likelihood.
             # if t == 1:
             #     variance = variance
@@ -255,8 +258,11 @@ class DDPMScheduler(nn.Module):
         alpha_prod_t_prev = self.alphas_cumprod[prev_t_int]
         beta_prod_t = 1.0 - alpha_prod_t
         beta_prod_t_prev = 1.0 - alpha_prod_t_prev
-        current_alpha_t = self.alphas[t_int]
-        current_beta_t = self.betas[t_int]
+
+        # When skipping timesteps (prev_t != t-1), we need the cumulative alpha
+        # over the skip interval, not just the single-step alpha
+        current_alpha_t = alpha_prod_t / alpha_prod_t_prev if alpha_prod_t_prev > 0 else alpha_prod_t
+        current_beta_t = 1.0 - current_alpha_t
         
         # TODO: 2. compute predicted original sample from predicted noise also called
         # "predicted x_0" of formula (15) from https://arxiv.org/pdf/2006.11239.pdf
