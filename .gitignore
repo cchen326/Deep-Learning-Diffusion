@@ -4,3 +4,4 @@ data/
 slurm/
 wandb/
 experiments/
+*.slurm
