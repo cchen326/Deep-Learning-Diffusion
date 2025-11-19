@@ -34,7 +34,7 @@ def save_intermediate_denoising_steps(pipeline, args, device, save_dir, num_samp
     import torch
     from utils import randn_tensor
 
-    logger.info(f"Generating {num_samples} samples with intermediate steps saved every {save_interval} timesteps")
+    logger.info(f"Generating {num_samples} sample(s) with intermediate steps saved every {save_interval} timesteps")
 
     # Create save directory
     save_dir = Path(save_dir)
@@ -65,8 +65,17 @@ def save_intermediate_denoising_steps(pipeline, args, device, save_dir, num_samp
     logger.info(f"Denoising from t={timesteps[0].item()} to t={timesteps[-1].item()}")
 
     def save_2x2_grid(images_tensor, timestep, save_path):
-        """Save 4 images as a 2x2 grid"""
-        cols, rows = 2, 2
+        """Save images as a grid"""
+        n_samples = images_tensor.shape[0]
+        if n_samples == 4:
+            cols, rows = 2, 2
+        elif n_samples == 2:
+            cols, rows = 2, 1  # 1x2 horizontal grid for 2 samples
+        elif n_samples == 1:
+            cols, rows = 1, 1  # single image
+        else:
+            cols, rows = n_samples, 1  # fallback: horizontal strip
+
         img_size = args.image_size
         grid_image = Image.new('RGB', (cols * img_size, rows * img_size), color=(255, 255, 255))
 
@@ -74,7 +83,7 @@ def save_intermediate_denoising_steps(pipeline, args, device, save_dir, num_samp
         images_rescaled = (images_tensor + 1) / 2  # [-1, 1] -> [0, 1]
         images_rescaled = images_rescaled.clamp(0, 1)
 
-        for idx in range(min(num_samples, cols * rows)):
+        for idx in range(n_samples):
             img_tensor = images_rescaled[idx]
             img_np = (img_tensor.cpu().permute(1, 2, 0).numpy() * 255).astype('uint8')
             pil_img = Image.fromarray(img_np)
@@ -88,31 +97,38 @@ def save_intermediate_denoising_steps(pipeline, args, device, save_dir, num_samp
 
     # Denoising loop with intermediate saves
     step_count = 0
-    for i, t in enumerate(tqdm(timesteps, desc="Denoising")):
-        # Save at intervals
-        if i % save_interval == 0 or i == len(timesteps) - 1:
-            save_path = save_dir / f"denoising_step_{i:04d}_t{t.item():04d}.png"
-            save_2x2_grid(image.clone(), t.item(), save_path)
+    with torch.no_grad():
+        with torch.amp.autocast('cuda', dtype=torch.float16):  # Use mixed precision to save memory
+            for i, t in enumerate(tqdm(timesteps, desc="Denoising")):
+                # Save at intervals
+                if i % save_interval == 0 or i == len(timesteps) - 1:
+                    save_path = save_dir / f"denoising_step_{i:04d}_t{t.item():04d}.png"
+                    # Use detach() and convert to fp32 for saving
+                    save_2x2_grid(image.detach().float(), t.item(), save_path)
 
-        # CFG
-        if args.use_cfg and class_embeds is not None:
-            model_input = torch.cat([image, image], dim=0)
-            c = torch.cat([uncond_embeds, class_embeds], dim=0)
-        else:
-            model_input = image
-            c = class_embeds
+                # CFG
+                if args.use_cfg and class_embeds is not None:
+                    model_input = torch.cat([image, image], dim=0)
+                    c = torch.cat([uncond_embeds, class_embeds], dim=0)
+                else:
+                    model_input = image
+                    c = class_embeds
 
-        # Predict noise
-        model_output = pipeline.unet(model_input, t, c)
+                # Predict noise
+                model_output = pipeline.unet(model_input, t, c)
 
-        # Apply CFG
-        if args.use_cfg and class_embeds is not None:
-            uncond_model_output, cond_model_output = model_output.chunk(2)
-            model_output = uncond_model_output + args.cfg_guidance_scale * (cond_model_output - uncond_model_output)
+                # Apply CFG
+                if args.use_cfg and class_embeds is not None:
+                    uncond_model_output, cond_model_output = model_output.chunk(2)
+                    model_output = uncond_model_output + args.cfg_guidance_scale * (cond_model_output - uncond_model_output)
 
-        # Denoise step
-        image = pipeline.scheduler.step(model_output, t, image, generator)
-        step_count += 1
+                # Denoise step
+                image = pipeline.scheduler.step(model_output, t, image, generator)
+                step_count += 1
+
+                # Explicit memory cleanup every 10 steps
+                if i % 10 == 0:
+                    torch.cuda.empty_cache()
 
     logger.info(f"Saved {step_count // save_interval + 1} intermediate grids to {save_dir}")
 
@@ -193,6 +209,8 @@ def main():
 
     # Save intermediate denoising steps (2x2 grids at different timesteps)
     if args.save_intermediate_steps:
+        # Clear any cached memory before starting
+        torch.cuda.empty_cache()
         ckpt_path = Path(args.ckpt).resolve()
         intermediate_dir = ckpt_path.parent / "intermediate_denoising"
         logger.info("***** Saving Intermediate Denoising Steps *****")
@@ -202,6 +220,8 @@ def main():
             num_samples=4,  # 2x2 grid
             save_interval=args.intermediate_save_interval
         )
+        # Clear memory after intermediate denoising before main inference
+        torch.cuda.empty_cache()
 
     logger.info("***** Running Infrence *****")
 
@@ -239,7 +259,7 @@ def main():
     # TODO: we run inference to generation 5000 images
     # TODO: with cfg, we generate 50 images per class
     # Process generated images in chunks - update metrics immediately
-    preview_images = []  # Keep only first 16 for preview grid
+    preview_images = []  # Keep only first 4 for preview grid (2x2)
     to_tensor = transforms.ToTensor()
     batch_size = args.batch_size
     total_generated = 0
@@ -264,9 +284,9 @@ def main():
                 )
                 gen_images_tensor = torch.stack([to_tensor(img) for img in gen_images], dim=0)
 
-                # Keep first 16 images for preview
-                if len(preview_images) < 16:
-                    preview_images.append(gen_images_tensor[:min(16 - len(preview_images), current_batch_size)])
+                # Keep first 4 images for preview (2x2 grid)
+                if len(preview_images) < 4:
+                    preview_images.append(gen_images_tensor[:min(4 - len(preview_images), current_batch_size)])
 
                 # Update metrics immediately
                 batch_uint8 = to_uint8(gen_images_tensor).to(device)
@@ -294,9 +314,9 @@ def main():
             )
             gen_images_tensor = torch.stack([to_tensor(img) for img in gen_images], dim=0)
 
-            # Keep first 16 images for preview
-            if len(preview_images) < 16:
-                preview_images.append(gen_images_tensor[:min(16 - len(preview_images), current_batch_size)])
+            # Keep first 4 images for preview (2x2 grid)
+            if len(preview_images) < 4:
+                preview_images.append(gen_images_tensor[:min(4 - len(preview_images), current_batch_size)])
 
             # Update metrics immediately
             batch_uint8 = to_uint8(gen_images_tensor).to(device)
@@ -315,12 +335,12 @@ def main():
 
     logger.info(f"Generated {total_generated} images total")
 
-    # Save preview grid from first 16 images
+    # Save preview grid from first 4 images (2x2 grid)
     if preview_images:
-        preview_tensor = torch.cat(preview_images, dim=0)[:16]
+        preview_tensor = torch.cat(preview_images, dim=0)[:4]
         grid = make_grid(
             preview_tensor,
-            nrow=min(4, preview_tensor.shape[0]),
+            nrow=2,  # 2 images per row = 2x2 grid
             padding=2,
             pad_value=1.0,
         )
