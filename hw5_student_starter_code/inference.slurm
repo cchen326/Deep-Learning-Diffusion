@@ -5,7 +5,7 @@
 #SBATCH --gpus=h100-80:1
 #SBATCH --job-name=idl_diffusion_inference
 #SBATCH -A cis250233p
-#SBATCH --array=1
+#SBATCH --array=1-2
 #SBATCH --output=slurm/inference/%A_%a.out
 #SBATCH --error=slurm/inference/%A_%a.err
 #SBATCH --export=ALL
