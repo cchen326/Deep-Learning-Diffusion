@@ -2,13 +2,13 @@ import torch
 import os
 
 def load_checkpoint(unet, scheduler, vae=None, class_embedder=None, optimizer=None, checkpoint_path='checkpoints/checkpoint.pth'):
-    
+
     print("loading checkpoint")
     # NOTE: PyTorch 2.6 defaults to `weights_only=True`, which breaks checkpoints that
     # store configuration values (e.g. ruamel.yaml scalar floats). For our own training
     # artifacts it is safe to opt back into the original behaviour.
     checkpoint = torch.load(checkpoint_path, weights_only=False)
-    
+
     print("loading unet")
     unet.load_state_dict(checkpoint['unet_state_dict'])
     print("loading scheduler")
@@ -21,14 +21,19 @@ def load_checkpoint(unet, scheduler, vae=None, class_embedder=None, optimizer=No
             if current is not None and getattr(saved, 'shape', None) != getattr(current, 'shape', None):
                 scheduler_state.pop('timesteps')
     scheduler.load_state_dict(scheduler_state, strict=False)
-    
+
     if vae is not None and 'vae_state_dict' in checkpoint:
         print("loading vae")
         vae.load_state_dict(checkpoint['vae_state_dict'])
-    
+
     if class_embedder is not None and 'class_embedder_state_dict' in checkpoint:
         print("loading class_embedder")
         class_embedder.load_state_dict(checkpoint['class_embedder_state_dict'])
+
+    # Free checkpoint dict from memory
+    del checkpoint
+    torch.cuda.empty_cache()
+    print("checkpoint freed from memory")
     
     
         

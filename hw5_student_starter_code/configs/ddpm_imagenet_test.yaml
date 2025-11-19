@@ -1,0 +1,32 @@
+run_name: ddpm_imagenet128_test
+seed: 42
+data_dir: ./data/imagenet100_128x128/train
+image_size: 128
+batch_size: 32        # per GPU
+num_workers: 8
+num_classes: 100
+num_epochs: 50
+learning_rate: 2e-4
+weight_decay: 1e-4
+
+num_train_timesteps: 1000
+num_inference_steps: 250
+num_inference_samples: 5000
+samples_per_class: 50
+beta_start: 1e-4
+beta_end: 1e-2
+beta_schedule: linear
+
+variance_type: fixed_small
+predictor_type: epsilon
+
+unet_in_size: 128
+unet_in_ch: 3
+unet_ch: 128
+unet_num_res_blocks: 2
+unet_ch_mult: [1, 2, 2, 4]   # four stages for 128×128
+unet_attn: [2, 3]            # add attention on top two scales
+unet_dropout: 0.0
+
+use_ddim: False
+use_cfg: False               # flip to True later if you add class emb.

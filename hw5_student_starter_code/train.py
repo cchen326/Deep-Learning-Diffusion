@@ -80,7 +80,11 @@ def parse_args():
     
     # checkpoint path for inference
     parser.add_argument("--ckpt", type=str, default=None, help="checkpoint path for inference")
-    
+
+    # intermediate denoising visualization
+    parser.add_argument("--save_intermediate_steps", type=str2bool, default=True, help="save 2x2 grids at intermediate denoising steps during inference")
+    parser.add_argument("--intermediate_save_interval", type=int, default=50, help="save intermediate grids every N timesteps")
+
     # first parse of command-line args to check for config file
     args = parser.parse_args()
     
