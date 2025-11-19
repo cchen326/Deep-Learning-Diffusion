@@ -18,6 +18,107 @@ from train import parse_args
 logger = get_logger(__name__)
 
 
+def save_intermediate_denoising_steps(pipeline, args, device, save_dir, num_samples=4, save_interval=50):
+    """
+    Generate images and save 2x2 grids at intermediate denoising steps.
+
+    Args:
+        pipeline: The diffusion pipeline
+        args: Arguments containing generation parameters
+        device: Device to run on
+        save_dir: Directory to save intermediate grids
+        num_samples: Number of samples to generate (should be 4 for 2x2 grid)
+        save_interval: Save a grid every N timesteps
+    """
+    from PIL import Image
+    import torch
+    from utils import randn_tensor
+
+    logger.info(f"Generating {num_samples} samples with intermediate steps saved every {save_interval} timesteps")
+
+    # Create save directory
+    save_dir = Path(save_dir)
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    # Setup
+    image_shape = (num_samples, pipeline.unet.input_ch, pipeline.unet.input_size, pipeline.unet.input_size)
+    generator = torch.Generator(device=device)
+    generator.manual_seed(args.seed)
+
+    # Get class embeddings if using CFG
+    if args.use_cfg:
+        classes = torch.randint(0, args.num_classes, (num_samples,), device=device)
+        class_embeds = pipeline.class_embedder(classes)
+        uncond_classes = torch.full_like(classes, pipeline.class_embedder.num_classes)
+        uncond_embeds = pipeline.class_embedder(uncond_classes)
+    else:
+        class_embeds = None
+        uncond_embeds = None
+
+    # Start with random noise
+    image = randn_tensor(image_shape, generator=generator, device=device)
+
+    # Set timesteps
+    pipeline.scheduler.set_timesteps(num_inference_steps=args.num_inference_steps, device=device)
+    timesteps = pipeline.scheduler.timesteps
+
+    logger.info(f"Denoising from t={timesteps[0].item()} to t={timesteps[-1].item()}")
+
+    def save_2x2_grid(images_tensor, timestep, save_path):
+        """Save 4 images as a 2x2 grid"""
+        cols, rows = 2, 2
+        img_size = args.image_size
+        grid_image = Image.new('RGB', (cols * img_size, rows * img_size), color=(255, 255, 255))
+
+        # Convert tensor to PIL images
+        images_rescaled = (images_tensor + 1) / 2  # [-1, 1] -> [0, 1]
+        images_rescaled = images_rescaled.clamp(0, 1)
+
+        for idx in range(min(num_samples, cols * rows)):
+            img_tensor = images_rescaled[idx]
+            img_np = (img_tensor.cpu().permute(1, 2, 0).numpy() * 255).astype('uint8')
+            pil_img = Image.fromarray(img_np)
+
+            x = (idx % cols) * img_size
+            y = (idx // cols) * img_size
+            grid_image.paste(pil_img, (x, y))
+
+        grid_image.save(save_path)
+        logger.info(f"Saved grid at t={timestep} to {save_path}")
+
+    # Denoising loop with intermediate saves
+    step_count = 0
+    for i, t in enumerate(tqdm(timesteps, desc="Denoising")):
+        # Save at intervals
+        if i % save_interval == 0 or i == len(timesteps) - 1:
+            save_path = save_dir / f"denoising_step_{i:04d}_t{t.item():04d}.png"
+            save_2x2_grid(image.clone(), t.item(), save_path)
+
+        # CFG
+        if args.use_cfg and class_embeds is not None:
+            model_input = torch.cat([image, image], dim=0)
+            c = torch.cat([uncond_embeds, class_embeds], dim=0)
+        else:
+            model_input = image
+            c = class_embeds
+
+        # Predict noise
+        model_output = pipeline.unet(model_input, t, c)
+
+        # Apply CFG
+        if args.use_cfg and class_embeds is not None:
+            uncond_model_output, cond_model_output = model_output.chunk(2)
+            model_output = uncond_model_output + args.cfg_guidance_scale * (cond_model_output - uncond_model_output)
+
+        # Denoise step
+        image = pipeline.scheduler.step(model_output, t, image, generator)
+        step_count += 1
+
+    logger.info(f"Saved {step_count // save_interval + 1} intermediate grids to {save_dir}")
+
+    return image
+
+
 def main():
     # parse arguments
     args = parse_args()
@@ -90,7 +191,18 @@ def main():
     # TODO: pipeline
     pipeline = DDPMPipeline(unet, scheduler, vae, class_embedder)
 
-    
+    # Save intermediate denoising steps (2x2 grids at different timesteps)
+    if args.save_intermediate_steps:
+        ckpt_path = Path(args.ckpt).resolve()
+        intermediate_dir = ckpt_path.parent / "intermediate_denoising"
+        logger.info("***** Saving Intermediate Denoising Steps *****")
+        save_intermediate_denoising_steps(
+            pipeline, args, device,
+            save_dir=intermediate_dir,
+            num_samples=4,  # 2x2 grid
+            save_interval=args.intermediate_save_interval
+        )
+
     logger.info("***** Running Infrence *****")
     
     # TODO: we run inference to generation 5000 images
