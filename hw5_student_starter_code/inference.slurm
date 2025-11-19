@@ -5,6 +5,7 @@
 #SBATCH --gpus=h100-80:1
 #SBATCH --job-name=idl_diffusion_inference
 #SBATCH -A cis250233p
+#SBATCH --array=1-2
 #SBATCH --output=slurm/inference/%A_%a.out
 #SBATCH --error=slurm/inference/%A_%a.err
 #SBATCH --export=ALL
@@ -17,8 +18,8 @@ conda activate idl_diffusion_env
 
 nvidia-smi
 
-export WANDB_API_KEY="2f02bf2d4bd05dc6abe9560736612ee323fa9b42"
-export WANBD_PROJECT="diffusion"
+export WANDB_API_KEY="fd9d290c4a15ae392ded175c4d6d17ec265c19bc"
+export WANDB_PROJECT="diffusion"
 export WANDB_ENTITY="idl_diffusion"
 
 # model inference
