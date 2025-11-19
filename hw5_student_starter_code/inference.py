@@ -204,15 +204,49 @@ def main():
         )
 
     logger.info("***** Running Infrence *****")
-    
+
+    # TODO: load validation images as reference batch
+    val_transform = transforms.Compose([
+        transforms.Resize((args.image_size, args.image_size)),
+        transforms.ToTensor(),
+    ])
+    val_dataset = datasets.CIFAR10(root="data",train=False,download=True,transform=val_transform)
+    val_dataloader = torch.utils.data.DataLoader(val_dataset,batch_size=args.batch_size,shuffle=False)
+
+    # TODO: using torchmetrics for evaluation, check the documents of torchmetrics
+    import torchmetrics
+    from torchmetrics.image.fid import FrechetInceptionDistance
+    from torchmetrics.image.inception import InceptionScore
+
+    # Initialize metrics early
+    logger.info("Initializing FID and IS metrics")
+    fid_metric = FrechetInceptionDistance(feature=2048, reset_real_features=True, normalize=False, input_img_size=(3, 299, 299), feature_extractor_weights_path=None, antialias=True).to(device)
+    is_metric = InceptionScore(feature='logits_unbiased', splits=10, normalize=False).to(device)
+
+    def to_uint8(batch: torch.Tensor) -> torch.Tensor:
+        batch = batch.clamp(0.0, 1.0)
+        return (batch * 255.0).round().to(torch.uint8)
+
+    # Process real images in chunks
+    logger.info("Processing real images for FID...")
+    eval_batch_size = args.batch_size
+    for images, _ in tqdm(val_dataloader, desc="Processing real images"):
+        batch_uint8 = to_uint8(images).to(device)
+        fid_metric.update(batch_uint8, real=True)
+        del batch_uint8
+        torch.cuda.empty_cache()
+
     # TODO: we run inference to generation 5000 images
-    # TODO: with cfg, we generate 50 images per class 
-    all_images = []
+    # TODO: with cfg, we generate 50 images per class
+    # Process generated images in chunks - update metrics immediately
+    preview_images = []  # Keep only first 16 for preview grid
     to_tensor = transforms.ToTensor()
     batch_size = args.batch_size
+    total_generated = 0
+
     if args.use_cfg:
         samples_per_class = max(1, args.samples_per_class)
-        for class_idx in tqdm(range(args.num_classes)):
+        for class_idx in tqdm(range(args.num_classes), desc="Generating images"):
             logger.info(f"Generating {samples_per_class} images for class {class_idx}")
             remaining = samples_per_class
             while remaining > 0:
@@ -228,13 +262,27 @@ def main():
                     generator=generator,
                     device=device,
                 )
-                gen_images = torch.stack([to_tensor(img) for img in gen_images], dim=0)
-                all_images.append(gen_images)
+                gen_images_tensor = torch.stack([to_tensor(img) for img in gen_images], dim=0)
+
+                # Keep first 16 images for preview
+                if len(preview_images) < 16:
+                    preview_images.append(gen_images_tensor[:min(16 - len(preview_images), current_batch_size)])
+
+                # Update metrics immediately
+                batch_uint8 = to_uint8(gen_images_tensor).to(device)
+                fid_metric.update(batch_uint8, real=False)
+                is_metric.update(batch_uint8)
+
+                total_generated += current_batch_size
                 remaining -= current_batch_size
+
+                # Free memory immediately
+                del gen_images, gen_images_tensor, batch_uint8
+                torch.cuda.empty_cache()
     else:
         total_samples = max(1, args.num_inference_samples)
         remaining = total_samples
-        for _ in tqdm(range(math.ceil(total_samples / batch_size))):
+        for _ in tqdm(range(math.ceil(total_samples / batch_size)), desc="Generating images"):
             current_batch_size = min(batch_size, remaining)
             if current_batch_size <= 0:
                 break
@@ -244,20 +292,35 @@ def main():
                 generator=generator,
                 device=device,
             )
-            gen_images = torch.stack([to_tensor(img) for img in gen_images], dim=0)
-            all_images.append(gen_images)
+            gen_images_tensor = torch.stack([to_tensor(img) for img in gen_images], dim=0)
+
+            # Keep first 16 images for preview
+            if len(preview_images) < 16:
+                preview_images.append(gen_images_tensor[:min(16 - len(preview_images), current_batch_size)])
+
+            # Update metrics immediately
+            batch_uint8 = to_uint8(gen_images_tensor).to(device)
+            fid_metric.update(batch_uint8, real=False)
+            is_metric.update(batch_uint8)
+
+            total_generated += current_batch_size
             remaining -= current_batch_size
-            
-    if not all_images:
+
+            # Free memory immediately
+            del gen_images, gen_images_tensor, batch_uint8
+            torch.cuda.empty_cache()
+
+    if total_generated == 0:
         raise ValueError("No images were generated; please check batch size and sample configuration.")
-    generated_images = torch.cat(all_images, dim=0)
-    
-    # save preview grid next to checkpoint for quick inspection
-    preview_count = min(16, generated_images.shape[0])
-    if preview_count > 0:
+
+    logger.info(f"Generated {total_generated} images total")
+
+    # Save preview grid from first 16 images
+    if preview_images:
+        preview_tensor = torch.cat(preview_images, dim=0)[:16]
         grid = make_grid(
-            generated_images[:preview_count],
-            nrow=min(4, preview_count),
+            preview_tensor,
+            nrow=min(4, preview_tensor.shape[0]),
             padding=2,
             pad_value=1.0,
         )
@@ -268,43 +331,11 @@ def main():
         preview_path = samples_dir / f"inference_samples_preview.png"
         preview_image.save(preview_path)
         logger.info(f"Saved inference preview grid to {preview_path}")
-    
-    # TODO: load validation images as reference batch
-    val_transform = transforms.Compose([
-        transforms.Resize((args.image_size, args.image_size)),
-        transforms.ToTensor(),
-    ])
-    val_dataset = datasets.CIFAR10(root="data",train=False,download=True,transform=val_transform)
-    val_dataloader = torch.utils.data.DataLoader(val_dataset,batch_size=args.batch_size,shuffle=False)
-    val_images = []
-    for images, _ in val_dataloader:
-        val_images.append(images)
-    val_images = torch.cat(val_images,dim=0)
+        del preview_tensor, grid, preview_image
+        torch.cuda.empty_cache()
 
-    # TODO: using torchmetrics for evaluation, check the documents of torchmetrics
-    import torchmetrics 
-    
-    from torchmetrics.image.fid import FrechetInceptionDistance
-    from torchmetrics.image.inception import InceptionScore
-    
-    # TODO: compute FID and IS
-    fid_metric = FrechetInceptionDistance(feature=2048, reset_real_features=True, normalize=False, input_img_size=(3, 299, 299), feature_extractor_weights_path=None, antialias=True).to(device)
-    is_metric = InceptionScore(feature='logits_unbiased', splits=10, normalize=False).to(device)
-
-    def to_uint8(batch: torch.Tensor) -> torch.Tensor:
-        batch = batch.clamp(0.0, 1.0)
-        return (batch * 255.0).round().to(torch.uint8)
-
-    eval_batch_size = args.batch_size
-    for batch in val_images.split(eval_batch_size):
-        batch_uint8 = to_uint8(batch).to(device)
-        fid_metric.update(batch_uint8, real=True)
-
-    for batch in generated_images.split(eval_batch_size):
-        batch_uint8 = to_uint8(batch).to(device)
-        fid_metric.update(batch_uint8, real=False)
-        is_metric.update(batch_uint8)
-
+    # Compute final metrics
+    logger.info("Computing FID and IS scores...")
     fid_score = fid_metric.compute().item()
     is_mean, is_std = is_metric.compute()
     logger.info(f"FID: {fid_score:.3f}, IS: {is_mean:.3f} ± {is_std:.3f}")
