@@ -17,7 +17,7 @@ from torchvision.utils  import make_grid
 from models import UNet, VAE, ClassEmbedder
 from schedulers import DDPMScheduler, DDIMScheduler
 from pipelines import DDPMPipeline
-from utils import seed_everything, init_distributed_device, is_primary, AverageMeter, str2bool, save_checkpoint
+from utils import seed_everything, init_distributed_device, is_primary, AverageMeter, str2bool, save_checkpoint, load_checkpoint
 
 
 logger = get_logger(__name__)
@@ -78,8 +78,9 @@ def parse_args():
     # ddim sampler for inference
     parser.add_argument("--use_ddim", type=str2bool, default=False, help="use ddim sampler for inference")
     
-    # checkpoint path for inference
+    # checkpoint paths
     parser.add_argument("--ckpt", type=str, default=None, help="checkpoint path for inference")
+    parser.add_argument("--resume_from", type=str, default=None, help="checkpoint path to resume training from")
 
     # intermediate denoising visualization
     parser.add_argument("--save_intermediate_steps", type=str2bool, default=True, help="save 2x2 grids at intermediate denoising steps during inference")
@@ -232,7 +233,25 @@ def main():
         step_size=max(1, len(train_loader)),
         gamma=0.98,
     )
-    
+
+    # Resume from checkpoint if specified
+    start_epoch = 0
+    if args.resume_from is not None:
+        if is_primary(args):
+            logger.info(f"Resuming training from checkpoint: {args.resume_from}")
+        start_epoch = load_checkpoint(
+            unet, scheduler,
+            vae=vae,
+            class_embedder=class_embedder,
+            optimizer=optimizer,
+            checkpoint_path=args.resume_from
+        )
+        # Adjust lr_scheduler to the correct state
+        for _ in range(start_epoch):
+            lr_scheduler.step()
+        if is_primary(args):
+            logger.info(f"Resuming from epoch {start_epoch + 1}")
+
     # max train steps
     num_update_steps_per_epoch = len(train_loader)
     args.max_train_steps = args.num_epochs * num_update_steps_per_epoch
@@ -304,7 +323,7 @@ def main():
     progress_bar = tqdm(range(args.max_train_steps), disable=not is_primary(args), miniters=10, mininterval=5.0)
 
     # training
-    for epoch in range(args.num_epochs):
+    for epoch in range(start_epoch, args.num_epochs):
         
         # set epoch for distributed sampler, this is for distribution training
         if hasattr(train_loader.sampler, 'set_epoch'):
