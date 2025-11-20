@@ -1,11 +1,11 @@
-run_name: ddpm_imagenet128_test_2
+run_name: ddim_imagenet_lrun
 seed: 42
 data_dir: ./data/imagenet100_128x128/train
 image_size: 128
 batch_size: 64        # per GPU
 num_workers: 8
 num_classes: 100
-num_epochs: 50
+num_epochs: 100
 learning_rate: 2e-4
 weight_decay: 1e-4
 
@@ -28,5 +28,5 @@ unet_ch_mult: [1, 2, 2, 4]   # four stages for 128×128
 unet_attn: [2, 3]            # add attention on top two scales
 unet_dropout: 0.0
 
-use_ddim: False
+use_ddim: True
 use_cfg: False               # flip to True later if you add class emb.

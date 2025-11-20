@@ -1,8 +1,10 @@
+python train.py --config configs/ddpm_imagenet_lrun.yaml
+python train.py --config configs/ddim_imagenet_lrun.yaml
+
 python train.py --config configs/ddpm_cifar10_lrun.yaml
 python train.py --config configs/ddim_cifar10_lrun.yaml
 
-python train.py --config configs/ddpm_imagenet_test_inference.yaml
-python train.py --config configs/ddim_imagenet_test.yaml
+
 
 python train.py --config configs/ddpm_cifar10_lrun.yaml --ckpt experiments/ddpm_cifar10_lrun/checkpoints/checkpoint_epoch_9.pth
 

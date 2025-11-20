@@ -1,8 +1,11 @@
+python inference.py --batch_size 128 --run_name ddpm_inference_imagenet128_test_inference --config configs/ddpm_imagenet_test.yaml --ckpt /ocean/projects/cis250233p/xhu15/Deep-Learning-Diffusion/hw5_student_starter_code/experiments/ddpm_imagenet128_test_2/checkpoints/checkpoint_epoch_49.pth
+python inference.py --batch_size 128 --run_name ddim_inference_imagenet128_test_inference --config configs/ddim_imagenet_test.yaml --ckpt /ocean/projects/cis250233p/xhu15/Deep-Learning-Diffusion/hw5_student_starter_code/experiments/ddim_imagenet128_test_2/checkpoints/checkpoint_epoch_49.pth
+
+
 python inference.py --run_name ddpm_inference_cifar10_test_inference --config configs/ddpm_cifar10_lrun.yaml --ckpt /ocean/projects/cis250233p/xhu15/Deep-Learning-Diffusion/hw5_student_starter_code/experiments/ddpm_cifar10_lrun/checkpoints/checkpoint_epoch_199.pth
 python inference.py --run_name ddim_inference_cifar10_test_inference --config configs/ddim_cifar10_lrun.yaml --ckpt /ocean/projects/cis250233p/xhu15/Deep-Learning-Diffusion/hw5_student_starter_code/experiments/ddim_cifar10_lrun/checkpoints/checkpoint_epoch_199.pth
 
 
-python inference.py --run_name ddpm_inference_imagenet128_test_inference --config configs/ddpm_imagenet_test_inference.yaml --ckpt /ocean/projects/cis250233p/xhu15/Deep-Learning-Diffusion/hw5_student_starter_code/experiments/ddpm_imagenet128_test_inference/checkpoints/checkpoint_epoch_4.pth
 python inference.py --run_name ddim_inference_imagenet128_test --config configs/ddim_imagenet_test.yaml --ckpt /ocean/projects/cis250233p/xhu15/Deep-Learning-Diffusion/hw5_student_starter_code/experiments/ddim_imagenet128_test/checkpoints/checkpoint_epoch_49.pth
 
 
