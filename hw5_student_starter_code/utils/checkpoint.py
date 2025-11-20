@@ -30,10 +30,20 @@ def load_checkpoint(unet, scheduler, vae=None, class_embedder=None, optimizer=No
         print("loading class_embedder")
         class_embedder.load_state_dict(checkpoint['class_embedder_state_dict'])
 
+    # Load optimizer state for resuming training
+    if optimizer is not None and 'optimizer_state_dict' in checkpoint:
+        print("loading optimizer")
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+    # Get the epoch number for resuming
+    start_epoch = checkpoint.get('epoch', 0)
+
     # Free checkpoint dict from memory
     del checkpoint
     torch.cuda.empty_cache()
-    print("checkpoint freed from memory")
+    print(f"checkpoint freed from memory (was at epoch {start_epoch})")
+
+    return start_epoch
     
     
         

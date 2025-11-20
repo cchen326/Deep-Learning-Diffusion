@@ -1,8 +1,8 @@
-run_name: ddim_imagenet128_test
+run_name: ddim_imagenet128_test_2
 seed: 42
 data_dir: ./data/imagenet100_128x128/train
 image_size: 128
-batch_size: 32        # per GPU
+batch_size: 64        # per GPU
 num_workers: 8
 num_classes: 100
 num_epochs: 50

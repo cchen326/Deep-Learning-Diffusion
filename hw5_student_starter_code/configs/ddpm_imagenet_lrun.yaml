@@ -1,11 +1,17 @@
-run_name: ddpm_imagenet128_test_2
+# Resume from 50 epochs and train to 200 total
+run_name: ddpm_imagenet128_long_run
+num_epochs: 100  # Total epochs (will train epochs 51-200)
+
+# Point to your last checkpoint
+resume_from: /ocean/projects/cis250233p/xhu15/Deep-Learning-Diffusion/hw5_student_starter_code/experiments/ddpm_imagenet128_test_2/checkpoints/checkpoint_epoch_49.pth
+
 seed: 42
 data_dir: ./data/imagenet100_128x128/train
 image_size: 128
 batch_size: 64        # per GPU
 num_workers: 8
 num_classes: 100
-num_epochs: 50
+#num_epochs: 100
 learning_rate: 2e-4
 weight_decay: 1e-4
 
