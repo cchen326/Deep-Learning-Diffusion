@@ -230,7 +230,8 @@ def main():
         transforms.Resize((args.image_size, args.image_size)),
         transforms.ToTensor(),
     ])
-    val_dataset = datasets.CIFAR10(root="data",train=False,download=True,transform=val_transform)
+    # Load ImageNet-100 validation set for FID/IS reference
+    val_dataset = datasets.ImageFolder(root="data/imagenet100_128x128/validation", transform=val_transform)
     val_dataloader = torch.utils.data.DataLoader(val_dataset,batch_size=args.batch_size,shuffle=False)
 
     # TODO: using torchmetrics for evaluation, check the documents of torchmetrics
