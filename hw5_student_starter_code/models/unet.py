@@ -7,14 +7,14 @@ from .unet_modules import TimeEmbedding, DownSample, UpSample, ResBlock
 
 
 class UNet(nn.Module):
-    def __init__(self, input_size, input_ch, T, ch, ch_mult, attn, num_res_blocks, dropout=0.0, conditional=False, c_dim=None):
+    def __init__(self, input_size, input_ch, T, ch, ch_mult, attn, num_res_blocks, dropout=0.0, conditional=False, c_dim=None, variance_type: str = "fixed_small"):
         super().__init__()
         assert all([i < len(ch_mult) for i in attn]), 'attn index out of bound'
         
         self.input_size = input_size 
         self.input_ch = input_ch
         self.T = T 
-        
+        self.variance_type = variance_type  
         
         tdim = ch * 4
         self.time_embedding = TimeEmbedding(T, ch, tdim)
@@ -52,10 +52,11 @@ class UNet(nn.Module):
                 self.upblocks.append(UpSample(now_ch))
         assert len(chs) == 0
 
+        out_ch = input_ch*(2 if self.variance_type=="learned" else 1)
         self.head = nn.Sequential(
             nn.GroupNorm(32, now_ch),
             nn.SiLU(),
-            nn.Conv2d(now_ch, input_ch, 1, stride=1, padding=0)
+            nn.Conv2d(now_ch, out_ch, 1, stride=1, padding=0)
         )
         self.initialize()
 

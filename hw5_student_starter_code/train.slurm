@@ -5,7 +5,7 @@
 #SBATCH --gpus=h100-80:1
 #SBATCH --job-name=idl_diffusion_train
 #SBATCH -A cis250233p
-#SBATCH --array=1-2
+#SBATCH --array=1
 #SBATCH --output=slurm/train/%A_%a.out
 #SBATCH --error=slurm/train/%A_%a.err
 #SBATCH --export=ALL

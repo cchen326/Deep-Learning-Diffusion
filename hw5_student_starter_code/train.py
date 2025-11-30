@@ -181,9 +181,9 @@ def main():
     # setup model
     logger.info("Creating model")
     # unet
-    unet = UNet(input_size=args.unet_in_size, input_ch=args.unet_in_ch, T=args.num_train_timesteps, ch=args.unet_ch, ch_mult=args.unet_ch_mult, attn=args.unet_attn, num_res_blocks=args.unet_num_res_blocks, dropout=args.unet_dropout, conditional=args.use_cfg, c_dim=args.unet_ch)
+    model = UNet(input_size=args.unet_in_size, input_ch=args.unet_in_ch, T=args.num_train_timesteps, ch=args.unet_ch, ch_mult=args.unet_ch_mult, attn=args.unet_attn, num_res_blocks=args.unet_num_res_blocks, dropout=args.unet_dropout, conditional=args.use_cfg, c_dim=args.unet_ch, variance_type = args.variance_type)
     # preint number of parameters
-    num_params = sum(p.numel() for p in unet.parameters() if p.requires_grad)
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logger.info(f"Number of parameters: {num_params / 10 ** 6:.2f}M")
     
     # TODO: ddpm shceduler
@@ -214,7 +214,7 @@ def main():
         class_embedder = ClassEmbedder(embed_dim=args.unet_ch, n_classes=args.num_classes, cond_drop_rate=0.1)
         
     # send to device
-    unet = unet.to(device)
+    model = model.to(device)
     scheduler = scheduler.to(device)
     if vae:
         vae = vae.to(device)
@@ -223,7 +223,7 @@ def main():
     
     # TODO: setup optimizer
     optimizer = torch.optim.AdamW(
-        unet.parameters(),
+        model.parameters(),
         lr=args.learning_rate,
         weight_decay=args.weight_decay,
     )
@@ -240,7 +240,7 @@ def main():
         if is_primary(args):
             logger.info(f"Resuming training from checkpoint: {args.resume_from}")
         start_epoch = load_checkpoint(
-            unet, scheduler,
+            model, scheduler,
             vae=vae,
             class_embedder=class_embedder,
             optimizer=optimizer,
@@ -258,9 +258,9 @@ def main():
     
     #  setup distributed training
     if args.distributed:
-        unet = torch.nn.parallel.DistributedDataParallel(
-            unet, device_ids=[args.device], output_device=args.device, find_unused_parameters=False)
-        unet_wo_ddp = unet.module
+        model = torch.nn.parallel.DistributedDataParallel(
+            model, device_ids=[args.device], output_device=args.device, find_unused_parameters=False)
+        model_wo_ddp = model.module
         if class_embedder:
             class_embedder = torch.nn.parallel.DistributedDataParallel(
                 class_embedder, device_ids=[args.device], output_device=args.device, find_unused_parameters=False)
@@ -268,7 +268,7 @@ def main():
         else:
             class_embedder_wo_ddp = None
     else:
-        unet_wo_ddp = unet
+        model_wo_ddp = model
         class_embedder_wo_ddp = class_embedder
     vae_wo_ddp = vae
     # TODO: setup ddim
@@ -289,7 +289,7 @@ def main():
     
     # TODO: setup evaluation pipeline
     # NOTE: this pipeline is not differentiable and only for evaluatin
-    pipeline = DDPMPipeline(unet_wo_ddp, scheduler_wo_ddp, vae_wo_ddp, class_embedder_wo_ddp)
+    pipeline = DDPMPipeline(model_wo_ddp, scheduler_wo_ddp, vae_wo_ddp, class_embedder_wo_ddp)
     
     
     # dump config file
@@ -337,7 +337,7 @@ def main():
         loss_m = AverageMeter()
         
         # TODO: set unet and scheduelr to train
-        unet.train()
+        model.train()
         scheduler.train()
         
         
@@ -386,13 +386,28 @@ def main():
             noisy_images = scheduler.add_noise(images, noise, timesteps)
             
             # TODO: model prediction
-            model_pred = unet(noisy_images, timesteps, class_emb)
+            model_pred = model(noisy_images, timesteps, class_emb)
             
             if args.prediction_type == 'epsilon':
                 target = noise 
             
             # TODO: calculate loss
-            loss = F.mse_loss(model_pred, target)
+            if args.variance_type == "learned":
+                pred_size = images.shape[1]
+                eps_pred, var_offset = model_pred.split(pred_size,dim=1)
+                loss_eps = F.mse_loss(eps_pred,target)
+                alpha_t = scheduler.alphas_cumprod[timesteps]
+                alpha_prev = torch.where(timesteps>0,scheduler.alphas_cumprod[timesteps-1],torch.ones_like(alpha_t))
+                beta_t = scheduler.betas[timesteps]
+                posterior_logvar = (beta_t*(1-alpha_prev)/(1-alpha_t)).clamp(1e-20).log().view(-1,1,1,1)
+                predicted_logvar = posterior_logvar + 0.5 * var_offset.tanh()
+                lambda_var = 5e-5
+                if epoch < 5:
+                    loss = loss_eps
+                else:
+                    loss = loss_eps+lambda_var*F.mse_loss(predicted_logvar, posterior_logvar)
+            else:
+                loss = F.mse_loss(model_pred, target)
             
             # record loss
             loss_m.update(loss.item())
@@ -401,7 +416,7 @@ def main():
             loss.backward()
             # TODO: grad clip
             if args.grad_clip:
-                torch.nn.utils.clip_grad_norm_(unet.parameters(), args.grad_clip)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
             
             # TODO: step your optimizer
             optimizer.step()
@@ -417,7 +432,7 @@ def main():
 
         # validation
         # send unet to evaluation mode
-        unet.eval()
+        model.eval()
         generator = torch.Generator(device=device)
         generator.manual_seed(epoch + args.seed)
 
@@ -459,7 +474,7 @@ def main():
             
         # save checkpoint
         if is_primary(args):
-            save_checkpoint(unet_wo_ddp, scheduler_wo_ddp, vae_wo_ddp, class_embedder, optimizer, epoch, save_dir=save_dir)
+            save_checkpoint(model_wo_ddp, scheduler_wo_ddp, vae_wo_ddp, class_embedder, optimizer, epoch, save_dir=save_dir)
 
 
 if __name__ == '__main__':
