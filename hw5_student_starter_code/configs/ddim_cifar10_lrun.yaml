@@ -1,6 +1,6 @@
-run_name: ddim_cifar10_lrun_inference
+run_name: ddim_cifar10_lrun_with_cfg
 seed: 42
-data_dir: ./data/cifar10/train
+data_dir: ./data/cifar_10/train
 image_size: 32
 batch_size: 256
 num_workers: 8
@@ -9,7 +9,7 @@ num_epochs: 200
 learning_rate: 3e-4
 weight_decay: 1e-4
 num_train_timesteps: 1000
-num_inference_steps: 250
+num_inference_steps: 400
 num_inference_samples: 5000
 samples_per_class: 50
 beta_start: 1e-4

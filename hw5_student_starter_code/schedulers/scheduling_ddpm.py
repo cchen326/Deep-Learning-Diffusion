@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn 
 
 from utils import randn_tensor
+import math
 
 
 class DDPMScheduler(nn.Module):
@@ -43,6 +44,13 @@ class DDPMScheduler(nn.Module):
         if self.beta_schedule == 'linear':
             # This is the DDPM implementation
             betas = torch.linspace(self.beta_start, self.beta_end, self.num_train_timesteps, dtype=torch.float32)
+        elif self.beta_schedule == "cosine":
+            s = 0.008
+            x = torch.linspace(0, num_train_timesteps, num_train_timesteps+1)
+            alphas_cumprod = torch.cos(((x/num_train_timesteps)+s)/(1+s) * math.pi/2) ** 2
+            alphas_cumprod = alphas_cumprod/alphas_cumprod[0]
+            betas = 1 - (alphas_cumprod[1:]/alphas_cumprod[:-1])
+            betas = torch.clip(betas, 0.0001, 0.9999)
         else:
             raise NotImplementedError(f"Beta schedule {self.beta_schedule} is not implemented.")
         self.register_buffer("betas", betas)
@@ -170,6 +178,9 @@ class DDPMScheduler(nn.Module):
             # TODO: small hack: set the initial (log-)variance like so to get a better decoder log likelihood.
             # if t == 1:
             #     variance = variance
+        elif self.variance_type == "learned":
+            variance = variance
+            
         else:
             raise NotImplementedError(f"Variance type {self.variance_type} not implemented.")
 
@@ -247,6 +258,11 @@ class DDPMScheduler(nn.Module):
         
         t = timestep
         prev_t = self.previous_timestep(t)
+
+        var_offset = None
+        if self.variance_type == "learned":
+            output_size = sample.shape[1]
+            model_output, var_offset = torch.split(model_output, output_size, dim=1)
         
         # TODO: 1. compute alphas, betas
         if torch.is_tensor(t):
@@ -294,7 +310,12 @@ class DDPMScheduler(nn.Module):
                 model_output.shape, generator=generator, device=device, dtype=model_output.dtype
             )
             # TODO: use self,get_variance and variance_noise
-            variance = self._get_variance(t)
+            if self.variance_type in ["fixed_small", "fixed_large"]:
+                variance = self._get_variance(t)
+            elif self.variance_type == "learned":
+                posterior_logvar = (current_beta_t*(1-alpha_prod_t_prev)/(1-alpha_prod_t)).clamp(1e-20).log().view(-1,1,1,1)
+                predicted_log_variance = posterior_logvar + 0.5 * var_offset.tanh()
+                variance = torch.exp(predicted_log_variance)
         
             # TODO: add variance to prev_sample
             pred_prev_sample = pred_prev_sample + torch.sqrt(variance) * variance_noise

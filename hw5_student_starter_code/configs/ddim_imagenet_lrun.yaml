@@ -1,14 +1,13 @@
 # Resume from 50 epochs and train to 200 total
-run_name: ddim_imagenet128_long_run
-num_epochs: 100  # Total epochs (will train epochs 51-200)
+run_name: ddim_imagenet128_long_run_with_cfg_cosine
+num_epochs: 200  # Total epochs (will train epochs 51-200)
 
 # Point to your last checkpoint
-resume_from: /ocean/projects/cis250233p/xhu15/Deep-Learning-Diffusion/hw5_student_starter_code/experiments/ddim_imagenet128_test_2/checkpoints/checkpoint_epoch_49.pth
 
 
-run_name: ddim_imagenet_lrun
+
 seed: 42
-data_dir: ./data/imagenet100_128x128/train
+data_dir: /ocean/projects/cis250233p/cchen36/Deep-Learning-Diffusion/hw5_student_starter_code/data/imagenet100_128x128/train
 image_size: 128
 batch_size: 64        # per GPU
 num_workers: 8
@@ -23,7 +22,7 @@ num_inference_samples: 5000
 samples_per_class: 50
 beta_start: 1e-4
 beta_end: 1e-2
-beta_schedule: linear
+beta_schedule: cosine
 
 variance_type: fixed_small
 predictor_type: epsilon
@@ -37,4 +36,4 @@ unet_attn: [2, 3]            # add attention on top two scales
 unet_dropout: 0.0
 
 use_ddim: True
-use_cfg: False               # flip to True later if you add class emb.
+use_cfg: True               # flip to True later if you add class emb.
